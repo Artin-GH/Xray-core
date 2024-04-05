@@ -3,6 +3,7 @@ package dokodemo
 //go:generate go run github.com/xtls/xray-core/common/errors/errorgen
 
 import (
+	"bytes"
 	"context"
 	"sync/atomic"
 	"time"
@@ -18,6 +19,8 @@ import (
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/policy"
 	"github.com/xtls/xray-core/features/routing"
+	"github.com/xtls/xray-core/proxy/vless"
+	"github.com/xtls/xray-core/proxy/vless/encoding"
 	"github.com/xtls/xray-core/transport/internet/stat"
 )
 
@@ -108,12 +111,12 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn st
 		Level: d.config.UserLevel,
 	}
 
-	ctx = log.ContextWithAccessMessage(ctx, &log.AccessMessage{
-		From:   conn.RemoteAddr(),
-		To:     dest,
-		Status: log.AccessAccepted,
-		Reason: "",
-	})
+	// ctx = log.ContextWithAccessMessage(ctx, &log.AccessMessage{
+	// 	From:   conn.RemoteAddr(),
+	// 	To:     dest,
+	// 	Status: log.AccessAccepted,
+	// 	Reason: "",
+	// })
 	newError("received request for ", conn.RemoteAddr()).WriteToLog(session.ExportIDToError(ctx))
 
 	plcy := d.policy()
@@ -144,9 +147,35 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn st
 		} else {
 			reader = buf.NewReader(conn)
 		}
-		if err := buf.Copy(reader, link.Writer, buf.UpdateActivity(timer)); err != nil {
+		allBytes, err := buf.CopyDokodemo(reader, link.Writer, buf.UpdateActivity(timer))
+		if err != nil {
 			return newError("failed to transport request").Base(err)
 		}
+
+		allBytesSplited := bytes.SplitN(allBytes, []byte("\r\n\r\n"), 2)
+		if len(allBytesSplited) != 2 {
+			return newError("invalid request")
+		}
+		allBytes = allBytesSplited[1]
+		allBytesReader := bytes.NewReader(allBytes)
+		first := buf.FromBytes(make([]byte, buf.Size))
+		first.Clear()
+		first.ReadFrom(allBytesReader)
+		br := &buf.BufferedReader{
+			Reader: buf.NewReader(allBytesReader),
+			Buffer: buf.MultiBuffer{first},
+		}
+		request, err := encoding.DecodeRequestHeaderDokodemo(first, br, new(vless.Validator))
+		if err != nil {
+			return newError("failed to encoding.DecodeRequestHeaderDokodemo")
+		}
+
+		go log.Record(&log.AccessMessage{
+			From:   conn.RemoteAddr(),
+			To:     request.Destination(),
+			Status: log.AccessAccepted,
+			Reason: "",
+		})
 
 		return nil
 	}

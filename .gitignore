@@ -28,3 +28,7 @@ errorgen
 *.dat
 .vscode
 /build_assets
+
+access.log
+error.log
+config.json

@@ -107,6 +107,31 @@ func copyInternal(reader Reader, writer Writer, handler *copyHandler) error {
 	}
 }
 
+func copyInternalDokodemo(reader Reader, writer Writer, handler *copyHandler) ([]byte, error) {
+	allBytes := []byte{}
+	for {
+		buffer, err := reader.ReadMultiBuffer()
+		if !buffer.IsEmpty() {
+			for _, handler := range handler.onData {
+				handler(buffer)
+			}
+
+			bufferBytes := make([]byte, buffer.Len())
+			buffer.Copy(bufferBytes)
+			newBuffer := MultiBuffer{FromBytes(bufferBytes)}
+			allBytes = append(allBytes, bufferBytes...)
+
+			if werr := writer.WriteMultiBuffer(newBuffer); werr != nil {
+				return allBytes, writeError{werr}
+			}
+		}
+
+		if err != nil {
+			return allBytes, readError{err}
+		}
+	}
+}
+
 // Copy dumps all payload from reader to writer or stops when an error occurs. It returns nil when EOF.
 func Copy(reader Reader, writer Writer, options ...CopyOption) error {
 	var handler copyHandler
@@ -118,6 +143,18 @@ func Copy(reader Reader, writer Writer, options ...CopyOption) error {
 		return err
 	}
 	return nil
+}
+
+func CopyDokodemo(reader Reader, writer Writer, options ...CopyOption) ([]byte, error) {
+	var handler copyHandler
+	for _, option := range options {
+		option(&handler)
+	}
+	allBytes, err := copyInternalDokodemo(reader, writer, &handler)
+	if err != nil && errors.Cause(err) != io.EOF {
+		return allBytes, err
+	}
+	return allBytes, nil
 }
 
 var ErrNotTimeoutReader = newError("not a TimeoutReader")

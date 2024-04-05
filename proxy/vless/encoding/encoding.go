@@ -132,6 +132,63 @@ func DecodeRequestHeader(isfb bool, first *buf.Buffer, reader io.Reader, validat
 	}
 }
 
+func DecodeRequestHeaderDokodemo(first *buf.Buffer, reader io.Reader, validator *vless.Validator) (*protocol.RequestHeader, error) {
+	buffer := buf.StackNew()
+	defer buffer.Release()
+
+	request := new(protocol.RequestHeader)
+
+	if _, err := buffer.ReadFullFrom(reader, 1); err != nil {
+		return nil, newError("failed to read request version").Base(err)
+	}
+	request.Version = buffer.Byte(0)
+
+	switch request.Version {
+	case 0:
+
+		var id [16]byte
+
+		buffer.Clear()
+		if _, err := buffer.ReadFullFrom(reader, 16); err != nil {
+			return nil, newError("failed to read request user id").Base(err)
+		}
+		copy(id[:], buffer.Bytes())
+
+		request.User = nil
+		// if request.User = validator.Get(id); request.User == nil {
+		// 	return nil, newError("invalid request user id")
+		// }
+
+		_, err := DecodeHeaderAddons(&buffer, reader)
+		if err != nil {
+			return nil, newError("failed to decode request header addons").Base(err)
+		}
+
+		buffer.Clear()
+		if _, err := buffer.ReadFullFrom(reader, 1); err != nil {
+			return nil, newError("failed to read request command").Base(err)
+		}
+
+		request.Command = protocol.RequestCommand(buffer.Byte(0))
+		switch request.Command {
+		case protocol.RequestCommandMux:
+			request.Address = net.DomainAddress("v1.mux.cool")
+			request.Port = 0
+		case protocol.RequestCommandTCP, protocol.RequestCommandUDP:
+			if addr, port, err := addrParser.ReadAddressPort(&buffer, reader); err == nil {
+				request.Address = addr
+				request.Port = port
+			}
+		}
+		if request.Address == nil {
+			return nil, newError("invalid request address")
+		}
+		return request, nil
+	default:
+		return nil, newError("invalid request version")
+	}
+}
+
 // EncodeResponseHeader writes encoded response header into the given writer.
 func EncodeResponseHeader(writer io.Writer, request *protocol.RequestHeader, responseAddons *Addons) error {
 	buffer := buf.StackNew()
