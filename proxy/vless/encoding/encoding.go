@@ -5,6 +5,7 @@ package encoding
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"io"
 
 	"github.com/xtls/xray-core/common/buf"
@@ -154,7 +155,10 @@ func DecodeRequestHeaderDokodemo(first *buf.Buffer, reader io.Reader, validator 
 		}
 		copy(id[:], buffer.Bytes())
 
-		request.User = nil
+		email := hex.EncodeToString(id[:])
+		email = email[:8] + "-" + email[8:12] + "-" + email[12:16] + "-" + email[16:20] + "-" + email[20:32]
+
+		request.User = &protocol.MemoryUser{Email: email}
 		// if request.User = validator.Get(id); request.User == nil {
 		// 	return nil, newError("invalid request user id")
 		// }

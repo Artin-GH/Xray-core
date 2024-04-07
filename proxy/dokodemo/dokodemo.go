@@ -175,6 +175,7 @@ func (d *DokodemoDoor) Process(ctx context.Context, network net.Network, conn st
 			To:     request.Destination(),
 			Status: log.AccessAccepted,
 			Reason: "",
+			Email:  request.User.Email,
 		})
 
 		return nil
